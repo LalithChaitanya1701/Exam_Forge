@@ -1,0 +1,6 @@
+{
+  "name": "ExamForge - MCQ to CBT Converter",
+  "description": "Convert raw multiple-choice questions into realistic computer-based tests with instant timers, question palettes, section scoring, and in-depth analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
