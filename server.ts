@@ -25,11 +25,9 @@ function getAuthenticatedUserId(req: Request): string | null {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice(7).trim();
-    const userId = getUserIdByToken(token);
-    if (userId) return userId;
+    return getUserIdByToken(token);
   }
-  const xUserId = req.headers['x-user-id'] as string;
-  return xUserId || null;
+  return null;
 }
 
 // Health check
@@ -323,7 +321,9 @@ app.post('/api/exams/:id/grade', async (req: Request, res: Response) => {
       bySection,
       answers,
       marked,
-      questionsSnapshot: exam.questions
+      questionsSnapshot: exam.questions,
+      posMarks: exam.posMarks,
+      negMarks: exam.negMarks
     };
 
     const saved = await db.saveAttempt(attempt);

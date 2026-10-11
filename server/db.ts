@@ -66,6 +66,8 @@ export interface Attempt {
   answers: Record<string, string>;
   marked: Record<string, boolean>;
   questionsSnapshot: Question[];
+  posMarks?: number;
+  negMarks?: number;
 }
 
 export interface UserPrefs {

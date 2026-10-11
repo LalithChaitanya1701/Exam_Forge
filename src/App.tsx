@@ -164,7 +164,9 @@ export default function App() {
         bySection,
         answers,
         marked,
-        questionsSnapshot: currentExam.questions
+        questionsSnapshot: currentExam.questions,
+        posMarks: currentExam.posMarks,
+        negMarks: currentExam.negMarks
       };
 
       setSelectedAttempt(fallbackAttempt);
@@ -180,13 +182,12 @@ export default function App() {
       setCurrentExam(match);
       setView('exam');
     } else {
-      const fallbackPos = att.questionsSnapshot?.[0]?.marks || 4;
       const reconstructed: Exam = {
         id: att.examId,
         title: att.examTitle,
         duration: Math.max(10, Math.ceil(att.timeTakenSec / 60) + 10),
-        posMarks: fallbackPos,
-        negMarks: 0,
+        posMarks: att.posMarks ?? att.questionsSnapshot?.[0]?.marks ?? 4,
+        negMarks: att.negMarks ?? 0,
         sections: Object.keys(att.bySection),
         questions: att.questionsSnapshot,
         totalMarks: att.total,
