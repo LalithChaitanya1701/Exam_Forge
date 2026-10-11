@@ -1,14 +1,12 @@
 import React from 'react';
 import { ViewMode, User } from '../types';
-import { BookOpen, PlusCircle, User as UserIcon, Sun, Moon, Volume2, VolumeX, Maximize2, Home, LogIn } from 'lucide-react';
+import { BookOpen, PlusCircle, User as UserIcon, Sun, Moon, Maximize2, Home, LogIn } from 'lucide-react';
 
 interface NavbarProps {
   currentView: ViewMode;
   onNavigate: (view: ViewMode) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
   currentUser: User | null;
 }
 
@@ -17,8 +15,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigate,
   theme,
   onToggleTheme,
-  soundEnabled,
-  onToggleSound,
   currentUser,
 }) => {
   const toggleFullscreen = () => {
@@ -126,14 +122,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="hidden xs:inline">Sign In</span>
           </button>
         )}
-
-        <button
-          onClick={onToggleSound}
-          className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
-          title={soundEnabled ? 'Mute sound' : 'Enable audio chimes'}
-        >
-          {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-        </button>
 
         <button
           onClick={onToggleTheme}

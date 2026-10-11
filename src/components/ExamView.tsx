@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Exam, Question } from '../types';
-import { playChime } from '../utils/parser';
 import { Sun, Moon, Maximize2, AlertCircle, ChevronLeft, ChevronRight, Bookmark, Check, HelpCircle } from 'lucide-react';
 
 interface ExamViewProps {
   exam: Exam;
   onFinishExam: (answers: Record<string, string>, marked: Record<string, boolean>, timeTakenSec: number) => void;
-  soundEnabled: boolean;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
 }
@@ -14,7 +12,6 @@ interface ExamViewProps {
 export const ExamView: React.FC<ExamViewProps> = ({
   exam,
   onFinishExam,
-  soundEnabled,
   theme,
   onToggleTheme,
 }) => {
@@ -37,34 +34,32 @@ export const ExamView: React.FC<ExamViewProps> = ({
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  // Main countdown timer
+  // Main countdown timer (wall-clock calculated to prevent background tab drift)
   useEffect(() => {
+    const endTime = startTimeRef.current + exam.duration * 60 * 1000;
+
     const timer = setInterval(() => {
-      setTimeLeftSec(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          if (soundEnabled) playChime(440, 0.6);
-          setToastMessage('Time is up! Submitting your test automatically...');
-          setTimeout(() => handleFinalSubmit(true), 1200);
-          return 0;
+      const remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+      setTimeLeftSec(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(timer);
+        setToastMessage('Time is up! Submitting your test automatically...');
+        setTimeout(() => handleFinalSubmit(true), 1200);
+        return;
+      }
+
+      const thresholds = [30 * 60, 20 * 60, 10 * 60, 5 * 60, 1 * 60];
+      thresholds.forEach(t => {
+        if (remaining <= t && remaining > t - 2 && t < exam.duration * 60 && !alertsFiredRef.current[t]) {
+          alertsFiredRef.current[t] = true;
+          setToastMessage(`⏰ ${Math.round(t / 60)} minute${t === 60 ? '' : 's'} remaining!`);
         }
-
-        const next = prev - 1;
-        const thresholds = [30 * 60, 20 * 60, 10 * 60, 5 * 60, 1 * 60];
-        thresholds.forEach(t => {
-          if (next === t && t < exam.duration * 60 && !alertsFiredRef.current[t]) {
-            alertsFiredRef.current[t] = true;
-            if (soundEnabled) playChime(780, 0.35);
-            setToastMessage(`⏰ ${Math.round(t / 60)} minute${t === 60 ? '' : 's'} remaining!`);
-          }
-        });
-
-        return next;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [exam.duration, soundEnabled]);
+  }, [exam.duration]);
 
   // Keyboard navigation
   useEffect(() => {

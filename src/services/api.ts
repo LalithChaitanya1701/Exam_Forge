@@ -1,5 +1,13 @@
 import { Exam, Attempt, UserPrefs, User } from '../types';
 
+function safeSetItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`localStorage quota exceeded for key ${key}:`, err);
+  }
+}
+
 function getStoredUser(): User | null {
   try {
     const raw = localStorage.getItem('examforge_current_user');
@@ -9,11 +17,23 @@ function getStoredUser(): User | null {
   }
 }
 
+function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('examforge_auth_token');
+  } catch {
+    return null;
+  }
+}
+
 function getAuthHeaders(): Record<string, string> {
   const user = getStoredUser();
+  const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   if (user?.id) {
     headers['x-user-id'] = user.id;
   }
@@ -33,7 +53,10 @@ export const api = {
       throw new Error(err.error || 'Failed to log in');
     }
     const data = await res.json();
-    localStorage.setItem('examforge_current_user', JSON.stringify(data.user));
+    safeSetItem('examforge_current_user', JSON.stringify(data.user));
+    if (data.token) {
+      safeSetItem('examforge_auth_token', data.token);
+    }
     return data.user;
   },
 
@@ -48,7 +71,10 @@ export const api = {
       throw new Error(err.error || 'Failed to register');
     }
     const data = await res.json();
-    localStorage.setItem('examforge_current_user', JSON.stringify(data.user));
+    safeSetItem('examforge_current_user', JSON.stringify(data.user));
+    if (data.token) {
+      safeSetItem('examforge_auth_token', data.token);
+    }
     return data.user;
   },
 
@@ -61,7 +87,7 @@ export const api = {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('examforge_current_user', JSON.stringify(data.user));
+        safeSetItem('examforge_current_user', JSON.stringify(data.user));
         return data.user;
       }
     } catch {
@@ -82,12 +108,15 @@ export const api = {
       throw new Error(err.error || 'Failed to update profile');
     }
     const data = await res.json();
-    localStorage.setItem('examforge_current_user', JSON.stringify(data.user));
+    safeSetItem('examforge_current_user', JSON.stringify(data.user));
     return data.user;
   },
 
   logout() {
-    localStorage.removeItem('examforge_current_user');
+    try {
+      localStorage.removeItem('examforge_current_user');
+      localStorage.removeItem('examforge_auth_token');
+    } catch {}
   },
 
   // Health & Config
@@ -114,7 +143,7 @@ export const api = {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('examforge_cached_exams', JSON.stringify(data));
+        safeSetItem('examforge_cached_exams', JSON.stringify(data));
         return data;
       }
     } catch {
@@ -168,7 +197,7 @@ export const api = {
     const cached = localStorage.getItem('examforge_cached_exams');
     const list: Exam[] = cached ? JSON.parse(cached) : [];
     list.unshift(fullExam);
-    localStorage.setItem('examforge_cached_exams', JSON.stringify(list));
+    safeSetItem('examforge_cached_exams', JSON.stringify(list.slice(0, 50)));
     return fullExam;
   },
 
@@ -185,7 +214,7 @@ export const api = {
     const cached = localStorage.getItem('examforge_cached_exams');
     if (cached) {
       const list: Exam[] = JSON.parse(cached);
-      localStorage.setItem('examforge_cached_exams', JSON.stringify(list.filter(e => e.id !== id)));
+      safeSetItem('examforge_cached_exams', JSON.stringify(list.filter(e => e.id !== id)));
     }
     return true;
   },
@@ -209,7 +238,7 @@ export const api = {
         const historyRaw = localStorage.getItem('examforge_cached_history');
         const history: Attempt[] = historyRaw ? JSON.parse(historyRaw) : [];
         history.unshift(attempt);
-        localStorage.setItem('examforge_cached_history', JSON.stringify(history));
+        safeSetItem('examforge_cached_history', JSON.stringify(history.slice(0, 20)));
         return attempt;
       }
     } catch {
@@ -228,7 +257,7 @@ export const api = {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('examforge_cached_history', JSON.stringify(data));
+        safeSetItem('examforge_cached_history', JSON.stringify(data.slice(0, 20)));
         return data;
       }
     } catch {
@@ -251,7 +280,7 @@ export const api = {
     const cached = localStorage.getItem('examforge_cached_history');
     if (cached) {
       const list: Attempt[] = JSON.parse(cached);
-      localStorage.setItem('examforge_cached_history', JSON.stringify(list.filter(a => a.id !== id)));
+      safeSetItem('examforge_cached_history', JSON.stringify(list.filter(a => a.id !== id)));
     }
     return true;
   },
@@ -265,7 +294,7 @@ export const api = {
       // fallback
     }
     const saved = localStorage.getItem('examforge_prefs');
-    return saved ? JSON.parse(saved) : { theme: 'light', soundEnabled: true, fontSize: 'normal' };
+    return saved ? JSON.parse(saved) : { theme: 'light', fontSize: 'normal' };
   },
 
   async savePrefs(prefs: Partial<UserPrefs>): Promise<UserPrefs> {
@@ -281,7 +310,7 @@ export const api = {
     }
     const current = await this.getPrefs();
     const merged = { ...current, ...prefs };
-    localStorage.setItem('examforge_prefs', JSON.stringify(merged));
+    safeSetItem('examforge_prefs', JSON.stringify(merged));
     return merged;
   }
 };

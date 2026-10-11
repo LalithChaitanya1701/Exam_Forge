@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  password: string; // stored for demo authentication
+  password: string; // stored as salt:hash or hashed value
   targetExam?: string;
   createdAt: string;
 }
@@ -20,7 +21,7 @@ export interface Question {
   section: string;
   text: string;
   options: QuestionOption[];
-  answer: string;
+  answer: string | null;
   marks: number;
   explanation: string;
 }
@@ -69,7 +70,6 @@ export interface Attempt {
 
 export interface UserPrefs {
   theme: 'light' | 'dark';
-  soundEnabled: boolean;
   fontSize: 'normal' | 'large';
 }
 
@@ -79,13 +79,67 @@ const EXAMS_FILE = path.join(DATA_DIR, 'exams.json');
 const ATTEMPTS_FILE = path.join(DATA_DIR, 'attempts.json');
 const PREFS_FILE = path.join(DATA_DIR, 'prefs.json');
 
+// In-memory serialized write queue to prevent concurrent JSON overwrites
+const writeQueues: Map<string, Promise<unknown>> = new Map();
+
+function serializedWrite<T>(fileKey: string, op: () => Promise<T>): Promise<T> {
+  const current = writeQueues.get(fileKey) || Promise.resolve();
+  const next = current.then(op, op);
+  writeQueues.set(fileKey, next);
+  return next as Promise<T>;
+}
+
+// Password hashing & verification
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  if (!stored) return false;
+  // Backward compatibility with demo plaintext passwords
+  if (!stored.includes(':')) {
+    return password === stored;
+  }
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const attemptHash = crypto.scryptSync(password, salt, 64).toString('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(attemptHash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+// In-memory session store
+const sessions: Map<string, { userId: string; expiresAt: number }> = new Map();
+
+export function createSession(userId: string): string {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
+  sessions.set(token, { userId, expiresAt });
+  return token;
+}
+
+export function getUserIdByToken(token: string): string | null {
+  if (!token) return null;
+  const sess = sessions.get(token);
+  if (!sess) return null;
+  if (Date.now() > sess.expiresAt) {
+    sessions.delete(token);
+    return null;
+  }
+  return sess.userId;
+}
+
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
 }
 
 async function atomicWrite(filePath: string, data: unknown) {
   await ensureDataDir();
-  const tempPath = `${filePath}.tmp.${Date.now()}`;
+  const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 6)}`;
   const content = JSON.stringify(data, null, 2);
   await fs.writeFile(tempPath, content, 'utf-8');
   await fs.rename(tempPath, filePath);
@@ -109,7 +163,7 @@ const DEFAULT_DEMO_USER: User = {
   id: 'usr-demo-01',
   email: 'alex@example.com',
   name: 'Alex Turner',
-  password: 'password123',
+  password: hashPassword('password123'),
   targetExam: 'Engineering & Science CBT Exams',
   createdAt: new Date().toISOString()
 };
@@ -217,7 +271,7 @@ export const db = {
   async getUsers(): Promise<User[]> {
     const users = await readJsonFile<User[]>(USERS_FILE, [DEFAULT_DEMO_USER]);
     if (users.length === 0) {
-      await atomicWrite(USERS_FILE, [DEFAULT_DEMO_USER]);
+      await serializedWrite(USERS_FILE, () => atomicWrite(USERS_FILE, [DEFAULT_DEMO_USER]));
       return [DEFAULT_DEMO_USER];
     }
     return users;
@@ -234,26 +288,30 @@ export const db = {
   },
 
   async createUser(user: User): Promise<User> {
-    const users = await this.getUsers();
-    users.push(user);
-    await atomicWrite(USERS_FILE, users);
-    return user;
+    return serializedWrite(USERS_FILE, async () => {
+      const users = await readJsonFile<User[]>(USERS_FILE, [DEFAULT_DEMO_USER]);
+      users.push(user);
+      await atomicWrite(USERS_FILE, users);
+      return user;
+    });
   },
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
-    const users = await this.getUsers();
-    const idx = users.findIndex(u => u.id === id);
-    if (idx === -1) return null;
-    users[idx] = { ...users[idx], ...updates };
-    await atomicWrite(USERS_FILE, users);
-    return users[idx];
+    return serializedWrite(USERS_FILE, async () => {
+      const users = await readJsonFile<User[]>(USERS_FILE, [DEFAULT_DEMO_USER]);
+      const idx = users.findIndex(u => u.id === id);
+      if (idx === -1) return null;
+      users[idx] = { ...users[idx], ...updates };
+      await atomicWrite(USERS_FILE, users);
+      return users[idx];
+    });
   },
 
   // Exams
   async getExams(): Promise<Exam[]> {
     const exams = await readJsonFile<Exam[]>(EXAMS_FILE, [DEFAULT_SAMPLE_EXAM]);
     if (exams.length === 0) {
-      await atomicWrite(EXAMS_FILE, [DEFAULT_SAMPLE_EXAM]);
+      await serializedWrite(EXAMS_FILE, () => atomicWrite(EXAMS_FILE, [DEFAULT_SAMPLE_EXAM]));
       return [DEFAULT_SAMPLE_EXAM];
     }
     return exams;
@@ -265,32 +323,36 @@ export const db = {
   },
 
   async saveExam(exam: Exam): Promise<Exam> {
-    const exams = await this.getExams();
-    const index = exams.findIndex(e => e.id === exam.id);
-    if (index >= 0) {
-      exams[index] = exam;
-    } else {
-      exams.unshift(exam);
-    }
-    await atomicWrite(EXAMS_FILE, exams);
-    return exam;
+    return serializedWrite(EXAMS_FILE, async () => {
+      const exams = await readJsonFile<Exam[]>(EXAMS_FILE, [DEFAULT_SAMPLE_EXAM]);
+      const index = exams.findIndex(e => e.id === exam.id);
+      if (index >= 0) {
+        exams[index] = exam;
+      } else {
+        exams.unshift(exam);
+      }
+      await atomicWrite(EXAMS_FILE, exams);
+      return exam;
+    });
   },
 
   async deleteExam(id: string): Promise<boolean> {
-    const exams = await this.getExams();
-    const filtered = exams.filter(e => e.id !== id);
-    if (filtered.length !== exams.length) {
-      await atomicWrite(EXAMS_FILE, filtered);
-      return true;
-    }
-    return false;
+    return serializedWrite(EXAMS_FILE, async () => {
+      const exams = await readJsonFile<Exam[]>(EXAMS_FILE, [DEFAULT_SAMPLE_EXAM]);
+      const filtered = exams.filter(e => e.id !== id);
+      if (filtered.length !== exams.length) {
+        await atomicWrite(EXAMS_FILE, filtered);
+        return true;
+      }
+      return false;
+    });
   },
 
   // Attempts
   async getAttempts(userId?: string): Promise<Attempt[]> {
     const attempts = await readJsonFile<Attempt[]>(ATTEMPTS_FILE, []);
     if (userId) {
-      return attempts.filter(a => !a.userId || a.userId === userId);
+      return attempts.filter(a => a.userId === userId);
     }
     return attempts;
   },
@@ -301,40 +363,48 @@ export const db = {
   },
 
   async saveAttempt(attempt: Attempt): Promise<Attempt> {
-    const attempts = await readJsonFile<Attempt[]>(ATTEMPTS_FILE, []);
-    const index = attempts.findIndex(a => a.id === attempt.id);
-    if (index >= 0) {
-      attempts[index] = attempt;
-    } else {
-      attempts.unshift(attempt);
-    }
-    await atomicWrite(ATTEMPTS_FILE, attempts);
-    return attempt;
+    return serializedWrite(ATTEMPTS_FILE, async () => {
+      const attempts = await readJsonFile<Attempt[]>(ATTEMPTS_FILE, []);
+      const index = attempts.findIndex(a => a.id === attempt.id);
+      if (index >= 0) {
+        attempts[index] = attempt;
+      } else {
+        attempts.unshift(attempt);
+      }
+      await atomicWrite(ATTEMPTS_FILE, attempts);
+      return attempt;
+    });
   },
 
   async deleteAttempt(id: string): Promise<boolean> {
-    const attempts = await readJsonFile<Attempt[]>(ATTEMPTS_FILE, []);
-    const filtered = attempts.filter(a => a.id !== id);
-    if (filtered.length !== attempts.length) {
-      await atomicWrite(ATTEMPTS_FILE, filtered);
-      return true;
-    }
-    return false;
+    return serializedWrite(ATTEMPTS_FILE, async () => {
+      const attempts = await readJsonFile<Attempt[]>(ATTEMPTS_FILE, []);
+      const filtered = attempts.filter(a => a.id !== id);
+      if (filtered.length !== attempts.length) {
+        await atomicWrite(ATTEMPTS_FILE, filtered);
+        return true;
+      }
+      return false;
+    });
   },
 
   // Preferences
   async getPrefs(): Promise<UserPrefs> {
     return await readJsonFile<UserPrefs>(PREFS_FILE, {
       theme: 'light',
-      soundEnabled: true,
       fontSize: 'normal'
     });
   },
 
   async savePrefs(prefs: Partial<UserPrefs>): Promise<UserPrefs> {
-    const current = await this.getPrefs();
-    const updated = { ...current, ...prefs };
-    await atomicWrite(PREFS_FILE, updated);
-    return updated;
+    return serializedWrite(PREFS_FILE, async () => {
+      const current = await readJsonFile<UserPrefs>(PREFS_FILE, {
+        theme: 'light',
+        fontSize: 'normal'
+      });
+      const updated = { ...current, ...prefs };
+      await atomicWrite(PREFS_FILE, updated);
+      return updated;
+    });
   }
 };

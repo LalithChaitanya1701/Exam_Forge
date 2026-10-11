@@ -144,7 +144,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Take the Live CBT
                 </h3>
                 <p className="text-xs sm:text-sm text-[var(--muted)] leading-relaxed mb-4">
-                  Simulate high-stakes testing with countdown timers, audio chimes, keyboard shortcuts, and full color-coded question palette tracking.
+                  Simulate high-stakes testing with countdown timers, visual alerts, keyboard shortcuts, and full color-coded question palette tracking.
                 </p>
               </div>
               <div className="flex items-center gap-1.5 p-3 bg-[var(--surface)] rounded-xl border border-[var(--border)] justify-center">
@@ -194,9 +194,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 shadow-xs">
               <Clock className="w-6 h-6 text-[var(--c-red)] mb-3" />
-              <h4 className="font-bold text-sm text-[var(--text)] mb-1.5">Strict Timers &amp; Chimes</h4>
+              <h4 className="font-bold text-sm text-[var(--text)] mb-1.5">Strict Countdown Timers</h4>
               <p className="text-xs text-[var(--muted)] leading-relaxed">
-                Automated countdown timer with warning pulses and chimes at 30, 20, 10, and 5 minutes remaining.
+                Automated countdown timer with visual warning pulses at 30, 20, 10, and 5 minutes remaining.
               </p>
             </div>
 

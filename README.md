@@ -8,7 +8,7 @@
 [![Express](https://img.shields.io/badge/Express-4.x-black.svg)](https://expressjs.com/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-ExamForge bridges the gap between raw study materials (textbooks, typed notes, practice sheets) and actual high-stakes testing environments (JEE, NEET, SAT, GRE, USMLE, civil services, and university examinations). Simply paste questions in an intuitive text format, configure positive/negative marks and duration, and launch an authentic test simulator with section navigation, interactive question palettes, audio time alerts, and comprehensive analytical reports.
+ExamForge bridges the gap between raw study materials (textbooks, typed notes, practice sheets) and actual high-stakes testing environments (JEE, NEET, SAT, GRE, USMLE, civil services, and university examinations). Simply paste questions in an intuitive text format, configure positive/negative marks and duration, and launch an authentic test simulator with section navigation, interactive question palettes, time alerts, and comprehensive analytical reports.
 
 ---
 
@@ -19,7 +19,7 @@ ExamForge bridges the gap between raw study materials (textbooks, typed notes, p
 - **Realistic CBT Simulator**:
   - **Section Partitioning**: Switch between subjects (e.g., Physics, Chemistry, Mathematics) with live section question counts.
   - **5-State Question Palette**: Color-coded numbers tracking Not Visited (gray), Answered (green), Unanswered (red), Marked for Review (brown), and Marked & Answered (purple).
-  - **Countdown Timer & Audio Alerts**: Digital timer with visual low-time warning pulses and Web Audio synthesized chimes at 30, 20, 10, and 5 minutes remaining.
+  - **Countdown Timer**: Digital timer with visual low-time warning pulses at 30, 20, 10, and 5 minutes remaining.
   - **Keyboard Shortcuts**: Select options with `1`–`4` or `A`–`D`, move between questions with `←` / `→`, and mark for review with `M`.
 - **Unified Profile & Test History**:
   - Test history table showing every completed attempt, score, accuracy percentage, and time taken.

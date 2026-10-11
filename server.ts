@@ -1,7 +1,17 @@
 import express, { Request, Response } from 'express';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { db, Exam, Attempt, SectionBreakdown, User } from './server/db.js';
+import {
+  db,
+  Exam,
+  Attempt,
+  SectionBreakdown,
+  User,
+  hashPassword,
+  verifyPassword,
+  createSession,
+  getUserIdByToken
+} from './server/db.js';
 
 dotenv.config();
 
@@ -10,6 +20,17 @@ const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
 app.use(express.json({ limit: '10mb' }));
+
+function getAuthenticatedUserId(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    const userId = getUserIdByToken(token);
+    if (userId) return userId;
+  }
+  const xUserId = req.headers['x-user-id'] as string;
+  return xUserId || null;
+}
 
 // Health check
 app.get('/api/health', (_req: Request, res: Response) => {
@@ -41,14 +62,15 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
       id: `usr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       email: email.trim().toLowerCase(),
       name: name.trim(),
-      password,
+      password: hashPassword(password),
       targetExam: targetExam?.trim() || 'General Competitive Tests',
       createdAt: new Date().toISOString()
     };
 
     await db.createUser(newUser);
+    const token = createSession(newUser.id);
     const { password: _, ...safeUser } = newUser;
-    res.status(201).json({ user: safeUser });
+    res.status(201).json({ user: safeUser, token });
   } catch (err: unknown) {
     console.error('Registration error:', err);
     res.status(500).json({ error: 'Failed to create account' });
@@ -63,12 +85,13 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     }
 
     const user = await db.getUserByEmail(email);
-    if (!user || user.password !== password) {
+    if (!user || !verifyPassword(password, user.password)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    const token = createSession(user.id);
     const { password: _, ...safeUser } = user;
-    res.json({ user: safeUser });
+    res.json({ user: safeUser, token });
   } catch (err: unknown) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Failed to log in' });
@@ -77,7 +100,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
 app.get('/api/auth/me', async (req: Request, res: Response) => {
   try {
-    const userId = req.headers['x-user-id'] as string;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -97,7 +120,7 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
 
 app.post('/api/auth/profile', async (req: Request, res: Response) => {
   try {
-    const userId = req.headers['x-user-id'] as string;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -147,6 +170,7 @@ app.post('/api/exams', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid exam data: title and at least 1 question are required' });
     }
 
+    const requesterId = getAuthenticatedUserId(req) || userId;
     const defaultPosMarks = Math.max(0.1, Number(posMarks) || 4);
     const resolvedQuestions = questions.map((q: Record<string, any>) => ({
       ...q,
@@ -159,7 +183,7 @@ app.post('/api/exams', async (req: Request, res: Response) => {
 
     const newExam: Exam = {
       id: req.body.id || `exam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      userId: userId || undefined,
+      userId: requesterId || undefined,
       title: String(title).trim(),
       duration: Math.max(1, Number(duration) || 60),
       posMarks: defaultPosMarks,
@@ -180,6 +204,21 @@ app.post('/api/exams', async (req: Request, res: Response) => {
 
 app.delete('/api/exams/:id', async (req: Request, res: Response) => {
   try {
+    const exam = await db.getExamById(req.params.id);
+    if (!exam) {
+      return res.status(404).json({ error: 'Exam not found' });
+    }
+
+    // Protect sample diagnostic exam from deletion
+    if (exam.isSample || exam.id === 'sample-01') {
+      return res.status(403).json({ error: 'Cannot delete default sample diagnostic exam' });
+    }
+
+    const requesterId = getAuthenticatedUserId(req);
+    if (exam.userId && requesterId && exam.userId !== requesterId) {
+      return res.status(403).json({ error: 'Not authorized to delete this exam' });
+    }
+
     const deleted = await db.deleteExam(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: 'Exam not found' });
@@ -194,7 +233,10 @@ app.delete('/api/exams/:id', async (req: Request, res: Response) => {
 // Attempts API
 app.get('/api/attempts', async (req: Request, res: Response) => {
   try {
-    const userId = (req.query.userId as string) || (req.headers['x-user-id'] as string);
+    const userId = getAuthenticatedUserId(req) || (req.query.userId as string);
+    if (!userId) {
+      return res.json([]);
+    }
     const attempts = await db.getAttempts(userId);
     res.json(attempts);
   } catch (err: unknown) {
@@ -224,6 +266,7 @@ app.post('/api/exams/:id/grade', async (req: Request, res: Response) => {
     }
 
     const { answers = {}, marked = {}, timeTakenSec = 0, userId } = req.body;
+    const requesterId = getAuthenticatedUserId(req) || userId;
     let correct = 0;
     let wrong = 0;
     let unattempted = 0;
@@ -242,10 +285,14 @@ app.post('/api/exams/:id/grade', async (req: Request, res: Response) => {
       bySection[sec].marksTotal += qPosMarks;
 
       const userChoice = answers[q.id];
-      if (userChoice == null) {
+      if (userChoice == null || userChoice === '') {
         unattempted += 1;
         bySection[sec].unattempted += 1;
-      } else if (q.answer && String(userChoice).toUpperCase() === String(q.answer).toUpperCase()) {
+      } else if (!q.answer) {
+        // Question has no official answer key: do not penalize student with negative marks
+        unattempted += 1;
+        bySection[sec].unattempted += 1;
+      } else if (String(userChoice).toUpperCase() === String(q.answer).toUpperCase()) {
         correct += 1;
         scoreObtained += qPosMarks;
         bySection[sec].correct += 1;
@@ -262,7 +309,7 @@ app.post('/api/exams/:id/grade', async (req: Request, res: Response) => {
 
     const attempt: Attempt = {
       id: `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      userId: userId || undefined,
+      userId: requesterId || undefined,
       examId: exam.id,
       examTitle: exam.title,
       date: new Date().toISOString(),
@@ -289,6 +336,16 @@ app.post('/api/exams/:id/grade', async (req: Request, res: Response) => {
 
 app.delete('/api/attempts/:id', async (req: Request, res: Response) => {
   try {
+    const attempt = await db.getAttemptById(req.params.id);
+    if (!attempt) {
+      return res.status(404).json({ error: 'Attempt record not found' });
+    }
+
+    const requesterId = getAuthenticatedUserId(req);
+    if (attempt.userId && requesterId && attempt.userId !== requesterId) {
+      return res.status(403).json({ error: 'Not authorized to delete this attempt' });
+    }
+
     const deleted = await db.deleteAttempt(req.params.id);
     if (!deleted) {
       return res.status(404).json({ error: 'Attempt record not found' });
@@ -306,7 +363,7 @@ app.get('/api/prefs', async (_req: Request, res: Response) => {
     const prefs = await db.getPrefs();
     res.json(prefs);
   } catch {
-    res.json({ theme: 'light', soundEnabled: true, fontSize: 'normal' });
+    res.json({ theme: 'light', fontSize: 'normal' });
   }
 });
 

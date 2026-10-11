@@ -65,7 +65,6 @@ export interface Attempt {
 
 export interface UserPrefs {
   theme: 'light' | 'dark';
-  soundEnabled: boolean;
   fontSize: 'normal' | 'large';
 }
 

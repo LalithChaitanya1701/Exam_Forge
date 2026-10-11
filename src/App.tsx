@@ -13,7 +13,6 @@ import { formatQuestionsToText } from './utils/parser';
 export default function App() {
   const [view, setView] = useState<ViewMode>('landing');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [exams, setExams] = useState<Exam[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -39,7 +38,6 @@ export default function App() {
 
         if (prefs) {
           setTheme(prefs.theme || 'light');
-          setSoundEnabled(prefs.soundEnabled ?? true);
           document.documentElement.setAttribute('data-theme', prefs.theme || 'light');
         }
 
@@ -75,12 +73,6 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', nextTheme);
     await api.savePrefs({ theme: nextTheme });
   }, [theme]);
-
-  const handleToggleSound = useCallback(async () => {
-    const nextVal = !soundEnabled;
-    setSoundEnabled(nextVal);
-    await api.savePrefs({ soundEnabled: nextVal });
-  }, [soundEnabled]);
 
   const handleAuthSuccess = async (user: User) => {
     setCurrentUser(user);
@@ -139,11 +131,15 @@ export default function App() {
         if (given == null) {
           unattempted++;
           bySection[sec].unattempted++;
-        } else if (qq.answer && given === qq.answer) {
+        } else if (qq.answer && String(given).toUpperCase() === String(qq.answer).toUpperCase()) {
           correct++;
           scoreObtained += qq.marks;
           bySection[sec].correct++;
           bySection[sec].marks += qq.marks;
+        } else if (!qq.answer) {
+          // Question without answer key: do not penalize candidate
+          unattempted++;
+          bySection[sec].unattempted++;
         } else {
           wrong++;
           scoreObtained -= currentExam.negMarks;
@@ -184,12 +180,13 @@ export default function App() {
       setCurrentExam(match);
       setView('exam');
     } else {
+      const fallbackPos = att.questionsSnapshot?.[0]?.marks || 4;
       const reconstructed: Exam = {
         id: att.examId,
         title: att.examTitle,
         duration: Math.max(10, Math.ceil(att.timeTakenSec / 60) + 10),
-        posMarks: 4,
-        negMarks: 1,
+        posMarks: fallbackPos,
+        negMarks: 0,
         sections: Object.keys(att.bySection),
         questions: att.questionsSnapshot,
         totalMarks: att.total,
@@ -252,8 +249,6 @@ export default function App() {
           }}
           theme={theme}
           onToggleTheme={handleToggleTheme}
-          soundEnabled={soundEnabled}
-          onToggleSound={handleToggleSound}
           currentUser={currentUser}
         />
       )}
@@ -283,7 +278,6 @@ export default function App() {
           <ExamView
             exam={currentExam}
             onFinishExam={handleFinishExam}
-            soundEnabled={soundEnabled}
             theme={theme}
             onToggleTheme={handleToggleTheme}
           />

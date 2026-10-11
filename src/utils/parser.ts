@@ -95,9 +95,9 @@ export function parseMCQs(raw: string, defaultPosMarks: number = 4): ParseResult
         q.options.push({ label: m[1].toUpperCase(), text: m[2].trim() });
         lastField = 'option';
       } else if (/^answer\s*:/i.test(line)) {
-        const ansRaw = line.replace(/^answer\s*:/i, '').trim().toUpperCase();
-        const letters = ansRaw.match(/[A-D]/g);
-        q.answer = letters ? letters[0] : null;
+        const ansRaw = line.replace(/^answer\s*:/i, '').trim();
+        const m = ansRaw.match(/\b([A-Da-d])\b/);
+        q.answer = m ? m[1].toUpperCase() : null;
         lastField = 'answer';
       } else if (/^marks\s*:/i.test(line)) {
         const mk = parseFloat(line.replace(/^marks\s*:/i, ''));
@@ -150,24 +150,4 @@ export function formatQuestionsToText(questions: Question[]): string {
     }
     return parts.join('\n');
   }).join('\n---\n');
-}
-
-export function playChime(freq = 660, duration = 0.25) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + duration);
-  } catch {
-    // Audio might be blocked by browser policy until gesture
-  }
 }
